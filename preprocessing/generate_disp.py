@@ -1,5 +1,5 @@
-import argparse
 import os
+import argparse
 
 import numpy as np
 import scipy.misc as ssc
@@ -9,14 +9,16 @@ import imageio
 
 DEPTH_AS_DISP = True
 
-def generate_dispariy_from_velo(pc_velo, height, width, calib, depth_as_disp=False, baseline=0.54):
-    pts_2d = calib.project_velo_to_image(pc_velo)
+
+# 由velodyne雷达生成disparity，应该用kitti数据集中的雷达数据来生成真值
+def generate_disparity_from_velo(pc_velo, height, width, calib, depth_as_disp=False, baseline=0.54):
+    pts_2d = calib.project_velo_to_image(pc_velo)  # point_cloud_velodyne，3d点投影到2d
     fov_inds = (pts_2d[:, 0] < width - 1) & (pts_2d[:, 0] >= 0) & \
-               (pts_2d[:, 1] < height - 1) & (pts_2d[:, 1] >= 0)
-    fov_inds = fov_inds & (pc_velo[:, 0] > 2)
+               (pts_2d[:, 1] < height - 1) & (pts_2d[:, 1] >= 0)  # field of view indices，点云投影到图像平面上后，确定哪些点在图像的有效范围内。
+    fov_inds = fov_inds & (pc_velo[:, 0] > 2)  # 为何需要x>2，距离相机太近的不要吗，怎么索引是0
     imgfov_pc_velo = pc_velo[fov_inds, :]
     imgfov_pts_2d = pts_2d[fov_inds, :]
-    imgfov_pc_rect = calib.project_velo_to_rect(imgfov_pc_velo)
+    imgfov_pc_rect = calib.project_velo_to_rect(imgfov_pc_velo)  # 投影到image和rect有何区别，齐次和非齐次吗
     depth_map = np.zeros((height, width)) - 1
     imgfov_pts_2d = np.round(imgfov_pts_2d).astype(int)
     for i in range(imgfov_pts_2d.shape[0]):
@@ -26,6 +28,7 @@ def generate_dispariy_from_velo(pc_velo, height, width, calib, depth_as_disp=Fal
         return depth_map
     disp_map = (calib.f_u * baseline) / depth_map
     return disp_map
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Generate Disparity')
@@ -69,6 +72,6 @@ if __name__ == '__main__':
         image = imageio.imread(image_file)
         height, width = image.shape[:2]
         print('calib baseline {}'.format(calib.baseline))
-        disp = generate_dispariy_from_velo(lidar, height, width, calib, depth_as_disp=DEPTH_AS_DISP, baseline=calib.baseline)
+        disp = generate_disparity_from_velo(lidar, height, width, calib, depth_as_disp=DEPTH_AS_DISP, baseline=calib.baseline)
         np.save(disparity_dir + '/' + predix + ('_r' if args.right_calib else ''), disp)
         print('Finish Disparity {}'.format(predix + ('_r' if args.right_calib else '')))

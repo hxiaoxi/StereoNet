@@ -12,16 +12,18 @@ from dsgn.utils.bounding_box import compute_corners, quan_to_angle, \
     angle_to_quan, quan_to_rotation, compute_corners_sc
 from dsgn.layers import BuildCostVolume
 
+
 def project_rect_to_image(pts_3d_rect, P):
     n = pts_3d_rect.shape[0]
-    ones = torch.ones((n,1))
+    ones = torch.ones((n, 1))
     if pts_3d_rect.is_cuda:
         ones = ones.cuda()
     pts_3d_rect = torch.cat([pts_3d_rect, ones], dim=1)
-    pts_2d = torch.mm(pts_3d_rect, torch.transpose(P, 0, 1)) # nx3
-    pts_2d[:,0] /= pts_2d[:,2]
-    pts_2d[:,1] /= pts_2d[:,2]
-    return pts_2d[:,0:2]
+    pts_2d = torch.mm(pts_3d_rect, torch.transpose(P, 0, 1))  # nx3
+    pts_2d[:, 0] /= pts_2d[:, 2]
+    pts_2d[:, 1] /= pts_2d[:, 2]
+    return pts_2d[:, 0:2]
+
 
 class StereoNet(nn.Module):
     def __init__(self, cfg=None):
@@ -84,59 +86,63 @@ class StereoNet(nn.Module):
         assert self.num_3dconvs > 0
 
         RPN3D_INPUT_DIM = 0
-        if self.PlaneSweepVolume: RPN3D_INPUT_DIM += res_dim
-        if self.cat_disp: RPN3D_INPUT_DIM += 1
-        if self.cat_img_feature: RPN3D_INPUT_DIM += self.cfg.RPN_CONVDIM
-        if self.cat_right_img_feature: RPN3D_INPUT_DIM += self.cfg.RPN_CONVDIM
+        if self.PlaneSweepVolume:
+            RPN3D_INPUT_DIM += res_dim
+        if self.cat_disp:
+            RPN3D_INPUT_DIM += 1
+        if self.cat_img_feature:
+            RPN3D_INPUT_DIM += self.cfg.RPN_CONVDIM
+        if self.cat_right_img_feature:
+            RPN3D_INPUT_DIM += self.cfg.RPN_CONVDIM
 
         if self.cfg.RPN3D_ENABLE:
             conv3d_dim = getattr(self.cfg, 'conv3d_dim', 64)
 
-            self.rpn3d_conv = nn.Sequential(convbn_3d(RPN3D_INPUT_DIM, conv3d_dim, self.rpn3d_conv_kernel, 1, 
-                1 if self.rpn3d_conv_kernel == 3 else 0, gn=cfg.GN), nn.ReLU(inplace=True))
+            self.rpn3d_conv = nn.Sequential(convbn_3d(RPN3D_INPUT_DIM, conv3d_dim, self.rpn3d_conv_kernel, 1,
+                                                      1 if self.rpn3d_conv_kernel == 3 else 0, gn=cfg.GN), nn.ReLU(inplace=True))
 
             if self.num_3dconvs > 1:
                 self.rpn_3dconv1 = nn.Sequential(convbn_3d(conv3d_dim, conv3d_dim, 3, 1, 1, gn=cfg.GN),
-                    nn.ReLU(inplace=True))
+                                                 nn.ReLU(inplace=True))
             if self.num_3dconvs > 2:
                 self.rpn_3dconv2 = nn.Sequential(convbn_3d(conv3d_dim, conv3d_dim, 3, 1, 1, gn=cfg.GN),
-                    nn.ReLU(inplace=True))
+                                                 nn.ReLU(inplace=True))
             if self.num_3dconvs > 3:
                 self.rpn_3dconv3 = nn.Sequential(convbn_3d(conv3d_dim, conv3d_dim, 3, 1, 1, gn=cfg.GN),
-                    nn.ReLU(inplace=True))
+                                                 nn.ReLU(inplace=True))
 
             if self.hg_rpn_conv3d:
                 self.hg_rpn3d_conv = hourglass(conv3d_dim, gn=cfg.GN)
 
             self.rpn3d_pool = torch.nn.AvgPool3d((1, 4, 1), stride=(1, 4, 1))
             self.rpn3d_conv2 = nn.Sequential(convbn(conv3d_dim * 5, conv3d_dim * 2, 3, 1, 1, 1, gn=cfg.GN),
-                    nn.ReLU(inplace=True))
+                                             nn.ReLU(inplace=True))
 
             if not self.hg_rpn_conv:
                 self.rpn3d_conv3 = nn.Sequential(convbn(res_dim * 2, res_dim * 2, 3, 1, 1, 1, gn=cfg.GN),
-                        nn.ReLU(inplace=True))
+                                                 nn.ReLU(inplace=True))
             else:
                 self.rpn3d_conv3 = hourglass2d(res_dim * 2, gn=cfg.GN)
 
             self.rpn3d_cls_convs = nn.Sequential(convbn(res_dim * 2, res_dim * 2, 3, 1, 1, 1, gn=cfg.GN),
-                    nn.ReLU(inplace=True))
+                                                 nn.ReLU(inplace=True))
             self.rpn3d_bbox_convs = nn.Sequential(convbn(res_dim * 2, res_dim * 2, 3, 1, 1, 1, gn=cfg.GN),
-                    nn.ReLU(inplace=True))
+                                                  nn.ReLU(inplace=True))
             if self.num_convs > 1:
                 self.rpn3d_cls_convs2 = nn.Sequential(convbn(res_dim * 2, res_dim * 2, 3, 1, 1, 1, gn=cfg.GN),
-                        nn.ReLU(inplace=True))
+                                                      nn.ReLU(inplace=True))
                 self.rpn3d_bbox_convs2 = nn.Sequential(convbn(res_dim * 2, res_dim * 2, 3, 1, 1, 1, gn=cfg.GN),
-                        nn.ReLU(inplace=True))
+                                                       nn.ReLU(inplace=True))
             if self.num_convs > 2:
                 self.rpn3d_cls_convs3 = nn.Sequential(convbn(res_dim * 2, res_dim * 2, 3, 1, 1, 1, gn=cfg.GN),
-                        nn.ReLU(inplace=True))
+                                                      nn.ReLU(inplace=True))
                 self.rpn3d_bbox_convs3 = nn.Sequential(convbn(res_dim * 2, res_dim * 2, 3, 1, 1, 1, gn=cfg.GN),
-                        nn.ReLU(inplace=True))
+                                                       nn.ReLU(inplace=True))
             if self.num_convs > 3:
                 self.rpn3d_cls_convs4 = nn.Sequential(convbn(res_dim * 2, res_dim * 2, 3, 1, 1, 1, gn=cfg.GN),
-                        nn.ReLU(inplace=True))
+                                                      nn.ReLU(inplace=True))
                 self.rpn3d_bbox_convs4 = nn.Sequential(convbn(res_dim * 2, res_dim * 2, 3, 1, 1, 1, gn=cfg.GN),
-                        nn.ReLU(inplace=True))
+                                                       nn.ReLU(inplace=True))
 
             if self.class4angles:
                 self.bbox_cls = nn.Conv2d(res_dim * 2, self.num_angles * self.num_classes, kernel_size=3, padding=1, stride=1)
@@ -154,7 +160,8 @@ class StereoNet(nn.Module):
             self.hwl_dim = 3
             self.xyz_dim = 3
             # dx,dy,dz dh,dw,dl, [s,c, cls]xnum_angles
-            self.bbox_reg = nn.Conv2d(res_dim * 2, self.num_classes * (self.xyz_dim + self.hwl_dim + self.num_angles * self.each_angle_dim), kernel_size=3, padding=1, stride=1)
+            self.bbox_reg = nn.Conv2d(res_dim * 2, self.num_classes * (self.xyz_dim + self.hwl_dim +
+                                      self.num_angles * self.each_angle_dim), kernel_size=3, padding=1, stride=1)
             self.anchor_size = torch.as_tensor([cfg.RPN3D.ANCHORS_HEIGHT, cfg.RPN3D.ANCHORS_WIDTH, cfg.RPN3D.ANCHORS_LENGTH]).transpose(1, 0)
 
         for m in self.modules():
@@ -193,14 +200,14 @@ class StereoNet(nn.Module):
         affine_mat = torch.as_tensor([[[1., 0., 0.], [0., 1., 0.]]])
         affine_mat = affine_mat.repeat(self.maxdisp // self.downsample_disp, 1, 1)
 
-        for i in range(self.maxdisp // self.downsample_disp):
+        for i in range(self.maxdisp // self.downsample_disp): # 降采样次数？但maxdisp//downsam-disp应该类似192//12吧
             depth = ((i + 0.5) * self.downsample_disp + self.cfg.depth_min_intervals) * self.cfg.depth_interval
             affine_mat[self.maxdisp // self.downsample_disp - 1 - i, 0, 2] = default_scale / depth / self.downsample_disp
         self.affine_mat = affine_mat
-        # depth: 2.0 -> 40.2 # interval 0.2m
-        # disp : about 194.8 -> 9.69
+        # depth: 2.0 -> 40.2 # interval 0.2m # (40.2-2)/0.2+1=192
+        # disp : about 194.8 -> 9.69 # 视差能有小数吗，插值
 
-        depth = torch.zeros((self.maxdisp))
+        depth = torch.zeros((self.maxdisp)) # 类似cost volume吗
         for i in range(self.maxdisp):
             depth[self.maxdisp - 1 - i] = (i+self.cfg.depth_min_intervals) * self.cfg.depth_interval
         self.depth = depth
@@ -222,26 +229,29 @@ class StereoNet(nn.Module):
         self.coord_rect = coord_rect
 
     def forward(self, left, right, calibs_fu, calibs_baseline, calibs_Proj, calibs_Proj_R=None):
-        N = left.shape[0]
+        N = left.shape[0]  # N是输入图像数量
 
-        refimg_fea, left_rpn_feature = self.feature_extraction(left)
+        refimg_fea, left_rpn_feature = self.feature_extraction(left)  # 关注left和right流向
         targetimg_fea, right_rpn_feature = self.feature_extraction(right)
 
-        outputs = dict()
+        outputs = dict()  # 字典？
 
         if self.PlaneSweepVolume:
             affine_mat = self.affine_mat.cuda().clone().unsqueeze(0).repeat(N, 1, 1, 1)
-            affine_mat[:, :, 0, 2] = affine_mat[:, :, 0, 2] * calibs_fu[:,None].cuda().float() * calibs_baseline[:,None].cuda().float() / self.default_scale
-            cost = self.build_cost(refimg_fea, targetimg_fea, affine_mat[:,:,0,2])
+            affine_mat[:, :, 0, 2] = affine_mat[:, :, 0, 2] * calibs_fu[:, None].cuda().float() * calibs_baseline[:,
+                                                                                                                  None].cuda().float() / self.default_scale
+            cost = self.build_cost(refimg_fea, targetimg_fea, affine_mat[:, :, 0, 2])
             cost = cost.contiguous()
 
-            if not self.hg_firstconv:
+            # 总结，cost -> cost0
+            if not self.hg_firstconv: # hg，Hourglass 漏斗
                 cost0 = self.dres0(cost)
                 cost0 = self.dres1(cost0) + cost0
             else:
                 out0, pre0, post0 = self.dres0(cost, None, None)
                 cost0 = out0
 
+            # cost0 -> out + cost
             if self.hg_cv:
                 out1, pre1, post1 = self.dres2(cost0, None, None)
                 out1 = out1 + cost0
@@ -259,7 +269,7 @@ class StereoNet(nn.Module):
                     cost0 = None
 
                 out, cost = out0, cost0
-            
+
         outputs['depth_preds'] = []
 
         if self.PlaneSweepVolume and self.loss_disp:
@@ -269,7 +279,7 @@ class StereoNet(nn.Module):
                 pred1_softmax = F.softmax(cost1, dim=1)
                 pred1 = self.dispregression(pred1_softmax, depth=self.depth.cuda())
                 if self.training:
-                    outputs['depth_preds'].append( pred1 )
+                    outputs['depth_preds'].append(pred1)
                 else:
                     outputs['depth_preds'] = pred1
             else:
@@ -278,7 +288,7 @@ class StereoNet(nn.Module):
                 pred1_softmax = F.softmax(cost0, dim=1)
                 pred1 = self.dispregression(pred1_softmax, depth=self.depth.cuda())
                 if self.training:
-                    outputs['depth_preds'].append( pred1 )
+                    outputs['depth_preds'].append(pred1)
                 else:
                     outputs['depth_preds'] = pred1
 
@@ -289,14 +299,15 @@ class StereoNet(nn.Module):
             for i in range(N):
                 coord_img = torch.as_tensor(
                     project_rect_to_image(
-                        coord_rect.reshape(-1, 3), 
+                        coord_rect.reshape(-1, 3),
                         calibs_Proj[i].float().cuda()
-                    ).reshape(*self.coord_rect.shape[:3], 2), 
-                dtype=torch.float32)
+                    ).reshape(*self.coord_rect.shape[:3], 2),
+                    dtype=torch.float32)
 
                 coord_img = torch.cat([coord_img, self.coord_rect[..., 2:]], dim=-1)
                 norm_coord_img = (coord_img - torch.as_tensor([self.CV_X_MIN, self.CV_Y_MIN, self.CV_Z_MIN])[None, None, None, :]) / \
-                    (torch.as_tensor([self.CV_X_MAX, self.CV_Y_MAX, self.CV_Z_MAX]) - torch.as_tensor([self.CV_X_MIN, self.CV_Y_MIN, self.CV_Z_MIN]))[None, None, None, :]
+                    (torch.as_tensor([self.CV_X_MAX, self.CV_Y_MAX, self.CV_Z_MAX]) -
+                     torch.as_tensor([self.CV_X_MIN, self.CV_Y_MIN, self.CV_Z_MIN]))[None, None, None, :]
                 norm_coord_img = norm_coord_img * 2. - 1.
                 norm_coord_imgs.append(norm_coord_img)
             norm_coord_imgs = torch.stack(norm_coord_imgs, dim=0)
@@ -314,7 +325,7 @@ class StereoNet(nn.Module):
             if self.PlaneSweepVolume:
                 # Retrieve Voxel Feature from Cost Volume Feature
                 if self.cat_disp:
-                    CV_feature = torch.cat([out, cost.detach()], dim= 1)
+                    CV_feature = torch.cat([out, cost.detach()], dim=1)
                 else:
                     CV_feature = out
 
@@ -336,7 +347,7 @@ class StereoNet(nn.Module):
 
                 valids = (norm_coord_imgs[..., 0] >= -1.) & (norm_coord_imgs[..., 0] <= 1.) & \
                     (norm_coord_imgs[..., 1] >= -1.) & (norm_coord_imgs[..., 1] <= 1.)
-                valids = valids.float() 
+                valids = valids.float()
 
                 Voxel_2D = []
                 for i in range(N):
@@ -345,7 +356,7 @@ class StereoNet(nn.Module):
                         Voxel_2D_feature = F.grid_sample(RPN_feature_per_im, norm_coord_imgs[i, j:j+1, :, :, :2])
                         Voxel_2D.append(Voxel_2D_feature)
                 Voxel_2D = torch.cat(Voxel_2D, dim=0)
-                Voxel_2D = Voxel_2D.reshape(N, self.GRID_SIZE[0], -1, self.GRID_SIZE[1], self.GRID_SIZE[2]).transpose(1,2)
+                Voxel_2D = Voxel_2D.reshape(N, self.GRID_SIZE[0], -1, self.GRID_SIZE[1], self.GRID_SIZE[2]).transpose(1, 2)
                 Voxel_2D = Voxel_2D * valids[:, None, :, :, :]
 
                 if self.img_feature_attentionbydisp:
@@ -363,21 +374,22 @@ class StereoNet(nn.Module):
                 for i in range(N):
                     coord_right_img = torch.as_tensor(
                         project_rect_to_image(
-                            coord_rect.reshape(-1, 3), 
+                            coord_rect.reshape(-1, 3),
                             calibs_Proj_R[i].float().cuda()
-                        ).reshape(*self.coord_rect.shape[:3], 2), 
-                    dtype=torch.float32)
+                        ).reshape(*self.coord_rect.shape[:3], 2),
+                        dtype=torch.float32)
 
                     coord_right_img = torch.cat([coord_right_img, self.coord_rect[..., 2:]], dim=-1)
                     norm_coord_img = (coord_right_img - torch.as_tensor([self.CV_X_MIN, self.CV_Y_MIN, self.CV_Z_MIN])[None, None, None, :]) / \
-                        (torch.as_tensor([self.CV_X_MAX, self.CV_Y_MAX, self.CV_Z_MAX]) - torch.as_tensor([self.CV_X_MIN, self.CV_Y_MIN, self.CV_Z_MIN]))[None, None, None, :]
+                        (torch.as_tensor([self.CV_X_MAX, self.CV_Y_MAX, self.CV_Z_MAX]) -
+                         torch.as_tensor([self.CV_X_MIN, self.CV_Y_MIN, self.CV_Z_MIN]))[None, None, None, :]
                     norm_coord_img = norm_coord_img * 2. - 1.
                     norm_coord_right_imgs.append(norm_coord_img)
                 norm_coord_right_imgs = torch.stack(norm_coord_right_imgs, dim=0)
                 norm_coord_right_imgs = norm_coord_right_imgs.cuda()
 
                 valids_R = (norm_coord_right_imgs[..., 0] >= -1.) & (norm_coord_right_imgs[..., 0] <= 1.) & \
-                    (norm_coord_right_imgs[..., 1] >= -1.) & (norm_coord_right_imgs[..., 1] <= 1.) 
+                    (norm_coord_right_imgs[..., 1] >= -1.) & (norm_coord_right_imgs[..., 1] <= 1.)
                 valids_R = valids_R.float()
 
                 Voxel_2D_R = []
@@ -387,7 +399,7 @@ class StereoNet(nn.Module):
                         Voxel_2D_feature = F.grid_sample(RPN_feature_per_im, norm_coord_right_imgs[i, j:j+1, :, :, :2])
                         Voxel_2D_R.append(Voxel_2D_feature)
                 Voxel_2D_R = torch.cat(Voxel_2D_R, dim=0)
-                Voxel_2D_R = Voxel_2D_R.reshape(N, self.GRID_SIZE[0], -1, self.GRID_SIZE[1], self.GRID_SIZE[2]).transpose(1,2)
+                Voxel_2D_R = Voxel_2D_R.reshape(N, self.GRID_SIZE[0], -1, self.GRID_SIZE[1], self.GRID_SIZE[2]).transpose(1, 2)
                 Voxel_2D_R = Voxel_2D_R * valids_R[:, None, :, :, :]
 
                 if self.img_feature_attentionbydisp:
@@ -399,7 +411,7 @@ class StereoNet(nn.Module):
                     Voxel = Voxel_2D_R
 
             # (64, 190, 20, 300)
-            Voxel = self.rpn3d_conv(Voxel) # (64, 190, 20, 300)
+            Voxel = self.rpn3d_conv(Voxel)  # (64, 190, 20, 300)
 
             if self.num_3dconvs > 1:
                 Voxel = self.rpn_3dconv1(Voxel)
@@ -412,7 +424,7 @@ class StereoNet(nn.Module):
                 Voxel1, pre_Voxel, post_Voxel = self.hg_rpn3d_conv(Voxel, None, None)
                 Voxel = Voxel1 + Voxel
 
-            Voxel = self.rpn3d_pool(Voxel) # (64, 190, 5, 300)
+            Voxel = self.rpn3d_pool(Voxel)  # (64, 190, 5, 300)
             Voxel = Voxel.permute(0, 1, 3, 2, 4).reshape(N, -1, self.GRID_SIZE[0], self.GRID_SIZE[2]).contiguous()
 
             Voxel_BEV = self.rpn3d_conv2(Voxel)
@@ -421,7 +433,7 @@ class StereoNet(nn.Module):
                 Voxel_BEV = self.rpn3d_conv3(Voxel_BEV)
             else:
                 Voxel_BEV1, pre_BEV, post_BEV = self.rpn3d_conv3(Voxel_BEV, None, None)
-                Voxel_BEV = Voxel_BEV1 # some bug
+                Voxel_BEV = Voxel_BEV1  # some bug
 
             Voxel_BEV_cls = self.rpn3d_cls_convs(Voxel_BEV)
             Voxel_BEV_bbox = self.rpn3d_bbox_convs(Voxel_BEV)
@@ -446,8 +458,8 @@ class StereoNet(nn.Module):
             # dx, dy, h, w, l, q1, q2, q3, q4, dz
             N, C, H, W = bbox_reg.shape
 
-            dxyz, dhwl, angle_reg = torch.split(bbox_reg.reshape(N, self.num_classes, C // self.num_classes, H, W), \
-                    [self.xyz_dim, self.hwl_dim, self.each_angle_dim * self.num_angles], dim=2)
+            dxyz, dhwl, angle_reg = torch.split(bbox_reg.reshape(N, self.num_classes, C // self.num_classes, H, W),
+                                                [self.xyz_dim, self.hwl_dim, self.each_angle_dim * self.num_angles], dim=2)
 
             # angle / orientation
             angle_reg = angle_reg.permute(0, 3, 4, 2, 1).reshape(-1, self.each_angle_dim * self.num_angles, self.num_classes)
@@ -473,16 +485,16 @@ class StereoNet(nn.Module):
                 q = q.permute(0, 3, 4, 1, 2)
 
                 # N, num_angles, num_classes, dim, H, W
-                bbox_reg = torch.cat( [dxyz, hwl, q[:, :, :, None]], dim=3)
+                bbox_reg = torch.cat([dxyz, hwl, q[:, :, :, None]], dim=3)
                 bbox_reg = bbox_reg.reshape(N, self.num_angles * self.num_classes * 7, H, W)
             else:
                 box_corners = compute_corners_sc(
-                    hwl.reshape(-1, 3), 
-                    sin_d.reshape(-1), 
+                    hwl.reshape(-1, 3),
+                    sin_d.reshape(-1),
                     cos_d.reshape(-1)
                 ).reshape(N, H, W, self.num_angles, self.num_classes, 3, 8)
                 box_corners[:, :, :, :, :, 1, :] += hwl.reshape(N, H, W, self.num_angles, self.num_classes, 3)[:, :, :, :, :, 0:1] / 2.
-                box_corners = box_corners.permute(0, 3, 4, 6, 5, 1, 2) 
+                box_corners = box_corners.permute(0, 3, 4, 6, 5, 1, 2)
                 # (N, num_classes, num_angles, 8, 3, H, W)
 
                 # (N, num_classes, num_angles, )
